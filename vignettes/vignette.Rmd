@@ -34,9 +34,9 @@ str(snp_dat)
 First, we set the tunning parameters as follows. Please refer to the paper for detailed tuning parameters selection procedure.
 
 ```{r}
-M <- 5 # leaf size
+M <- 9 # leaf size
 L <- 3 # layer number
-alpha <- 0.05 # desired FDR
+alpha <- 0.1 # desired FDR
 ```
 
 
@@ -44,8 +44,7 @@ alpha <- 0.05 # desired FDR
 Second, we use `Test_Leaf` function to construct leaves and generate leaf P-values for the case-control study. 
 
 ```{r}
-# Model consider covariates effect:
-p.leaf <- Test_Leaf(snp_dat=snp_dat,thresh_val=M,covars=c("X1","X2"),teststat="score")
+p.leaf <- Test_Leaf(snp_dat=snp_dat,thresh_val=M,covars=NULL,teststat="FET")
 ```
 \par
 In the output data frames `p.leaf`, each row links to a rare variant (SNPs), and the number of rows equals the number of rare variants (SNPs) we considered. The data frame includes 5 variables. In the data frame, variable `L1` is leaf ID; variable `pvals` is the leaf level p values; variable `Test` indicates the name of the statistical test to generate the leaf level p values (FET or score).
