@@ -1,0 +1,26 @@
+Package: DATED
+Title: Localizing Rare-Variant Association Regions via Multiple Testing Embedded in an Aggregation Tree
+Version: 0.1
+Authors@R: c(person("Xuechan", "Li", email = "xuechan.li@duke.edu", role = c("aut", "cre")),
+             person("Jichun", "Xie", email = "jichuan.xie@duke.edu", role = c("ctb")))
+Description: What the package does (one paragraph).
+License: GPL-3
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.2.9000
+Imports: 
+    data.table,
+    tidyverse,
+    Matrix,
+    reshape2,
+    stats,
+    methods,
+    tibble,
+    dplyr
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+Depends: 
+    R (>= 2.10)
+LazyData: true
