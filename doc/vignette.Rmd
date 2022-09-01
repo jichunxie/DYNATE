@@ -1,8 +1,8 @@
 ---
-title: "DATED"
+title: "Vignette"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{DATED}
+  %\VignetteIndexEntry{vignette}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
