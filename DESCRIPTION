@@ -3,7 +3,7 @@ Title: Localizing Rare-Variant Association Regions via Multiple Testing Embedded
 Version: 0.1
 Authors@R: c(person("Xuechan", "Li", email = "xuechan.li@duke.edu", role = c("aut", "cre")),
              person("Jichun", "Xie", email = "jichuan.xie@duke.edu", role = c("ctb")))
-Description: What the package does (one paragraph).
+Description: R package for performing DATED procedure to find the rare-variant association regions.
 License: GPL-3
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
