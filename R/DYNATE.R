@@ -5,7 +5,7 @@
 #' Users can input the leaf information through argument struct_map.
 #' If there is not leaf information e.g. struct_map=NULL, Test_Leaf will automatically construct leaf.
 #' Argument thresh_val specifies the leaf size constructed from the function.
-#' Wyen tye argument Gmat_case and Gmat_ctrl is null, Test_Leaf will automatically generate those matrix.
+#' When the argument Gmat_case and Gmat_ctrl is null, Test_Leaf will automatically generate those matrices.
 #' @import tidyverse dplyr
 #' @importFrom tibble rowid_to_column
 #' @importFrom methods as
@@ -20,6 +20,17 @@
 #'
 #' @return a dataframe of rejected leafs with snp information.
 #' @export
+#'
+#' @examples
+#' data("snp_dat")
+#'
+#' # Set leaf size M
+#' M <- 5
+#'
+#' # Construct leaves and generate leaf p-value based on score test statistics considering covariates effects.
+#' p.leaf <- Test_Leaf(snp_dat=snp_dat,thresh_val=M,covars=c("X1","X2"),teststat="score")
+#' summary(p.leaf)
+#'
 Test_Leaf <- function(snp_dat=NULL,thresh_val=10,covars=NULL,teststat="FET"){
   struct_map <- construct_leafs(snp_dat=snp_dat,thresh_val=thresh_val)
   total_leaves <- uniqueN(struct_map$L1)
@@ -89,7 +100,7 @@ Test_Leaf <- function(snp_dat=NULL,thresh_val=10,covars=NULL,teststat="FET"){
 }
 
 
-#' DATED
+#' DYNATE
 #' Function to conduct hierarchical mutiple testing based on the leaf p-values
 #' @import tidyverse dplyr
 #' @importFrom tibble rowid_to_column
@@ -104,7 +115,22 @@ Test_Leaf <- function(snp_dat=NULL,thresh_val=10,covars=NULL,teststat="FET"){
 #'
 #' @return a data frame with testing results.
 #' @export
-DATED <- function(struct_map,
+#'
+#' @references
+#' Li, Xuechan, Anthony Sung, and Jichun Xie. "Distance Assisted Recursive Testing." arXiv preprint arXiv:2103.11085 (2021).
+#' Pura, John, et al. "TEAM: A Multiple Testing Algorithm on the Aggregation Tree for Flow Cytometry Analysis." arXiv preprint arXiv:1906.07757 (2019).
+#'
+#' @examples
+#' data("p_leaf")
+#'
+#' # Set tuning parameters
+#' L <- 3 # layer number
+#' alpha <- 0.05 # desired FDR
+#'
+#' # conduct dynamic and hierarchical testing based on the leaf level p values.
+#' out <- DYNATE(struct_map=p_leaf,L=L,alpha=alpha)
+#' summary(out)
+DYNATE <- function(struct_map,
                   L=5,
                   alpha=0.05){
 
@@ -367,7 +393,7 @@ create_leaf_attribute <- function(snp_mat,snp_leaf_map){
   snp_mat@Dimnames <- list(NULL,NULL)
 
   #Convert mat to dgTMatrix if not already
-  if(class(snp_mat)!="dgTMatrix"){
+  if(!inherits(snp_mat,"dgTMatrix")){
     snp_mat <- as(snp_mat, "dgTMatrix")
   }
 

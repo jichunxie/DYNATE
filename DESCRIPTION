@@ -1,9 +1,9 @@
-Package: DATED
+Package: DYNATE
 Title: Localizing Rare-Variant Association Regions via Multiple Testing Embedded in an Aggregation Tree
 Version: 0.1
-Authors@R: c(person("Xuechan", "Li", email = "xuechan.li@duke.edu", role = c("aut", "cre")),
+Authors@R: c(person("Xuechan", "Li", email = "xuechanli0530@gmail.com", role = c("aut", "cre")),
              person("Jichun", "Xie", email = "jichuan.xie@duke.edu", role = c("ctb")))
-Description: R package for performing the DATED procedure to find the rare-variant association regions.
+Description: Performing the DYNATE procedure to find the rare-variant association regions. When variants are rare, the single variant association test approach suffers from low power. To improve testing power, DYNATE dynamically and hierarchically aggregates smaller genome regions to larger ones and performs multiple testing for disease associations with a controlled node-level false discovery rate. This method are members of the family of ancillary information assisted recursive testing introduced in Pura et.al. (2021) <arXiv:1906.07757v2> and Li et.al. (2021) <arXiv:2103.11085v2>.
 License: GPL-3
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -22,5 +22,5 @@ Suggests:
     rmarkdown
 VignetteBuilder: knitr
 Depends: 
-    R (>= 2.10)
+    R (>= 3.5.0)
 LazyData: true
