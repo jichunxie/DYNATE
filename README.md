@@ -19,3 +19,4 @@ A tutorial of this package can be found in this repository under "DYNATE/vignett
 library(DYNATE)
 browseVignettes("DYNATE")
 ```
+A new version of DYNATE
