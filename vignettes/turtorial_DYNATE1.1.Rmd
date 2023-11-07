@@ -1,0 +1,736 @@
+---
+title: "New_DYNATE_Tutorial"
+author: "Jintong Zhao"
+date: "2023-05-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+all_times <- list()  # store the time for each chunk
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      now <<- Sys.time()
+    } else {
+      res <- difftime(Sys.time(), now, units = "secs")
+      all_times[[options$label]] <<- res
+    }
+  }
+}))
+knitr::opts_chunk$set(
+  tidy = TRUE,
+  tidy.opts = list(width.cutoff = 95),
+  message = FALSE,
+  warning = FALSE,
+  time_it = TRUE
+)
+```
+
+## Setup the DYNATE Object 
+
+For this tutorial, we will use `DYNATE` package to analyze ALS data contains 401429 rows (??? samples, ???? controls and ????cases) and total number of rare variants that all patients have are ????.
+
+```{r input data}
+library(dplyr)
+library(DYNATE)
+library(data.table)
+library(reshape2)
+library(tibble)
+```
+
+We start by reading in the data. The data has 401429 rows and 48 columns.
+
+```{r}
+# Load the ALS dataset
+load("/Users/mac/Desktop/RA/ALS_Preprocessed_Data_Euro_Sample.RData")
+raw = ALS_data_SNV_no_LoF_euro
+dim(raw)
+```
+
+The subsequent step involves establishing criteria for data filtration.\\
+We only select the domain that have at least 5 SNPs records residing in them. For example, 
+In the domain named "SAMD11:-:-_1", there are only 4 SNPs. However, in the domain named "NOC2L:252118:252118_0", there are more than 5 SNPs. Therefore, according to our criteria, this domain named "NOC2L:252118:252118_0" can be selected.
+```{r}
+# subRVIS.Domain.Name: domainID
+# loc_adj: snpID
+raw[1:10, c("subRVIS.Domain.Name", "loc_adj")]
+```
+
+Then through the criteria, we proceed with the filtration process.
+Simultaneously, the variables are renamed to facilitate comprehension and subsequent processing.
+```{r}
+raw <- raw%>%dplyr::rename(Sample.Name=ID)
+#filter begin
+raw <- raw%>%group_by(subRVIS.Domain.Name)%>% # subRVIS.Domain.Name: domainID
+  mutate(len=n())%>%
+  ungroup()%>%
+  filter(len>=5)%>%
+  arrange(loc_adj)%>% # loc_adj: snpID
+  mutate(snpID0=Variant.ID,snpID=rleid(loc_adj),Sample.Type=as.character(Sample.Type))%>%
+  arrange(-desc(Sample.Type),Sample.Name)%>%
+  mutate(Sample.ID=rleid(Sample.Name)) %>% arrange(subRVIS.Domain.Name)%>%
+  mutate(domainID=rleid(subRVIS.Domain.Name))
+  
+#filter end 
+snp_dat1 = raw %>% select("Sample.Type","Sample.ID","snpID","domainID")
+snp_dat2<- rename(snp_dat1, Sample.Name = Sample.ID)
+snp_dat2$snpID = as.numeric(snp_dat2$snpID)
+```
+
+The input data has 2 parts. sample_info and snp_info. \\
+`sample_info` contains the information of every sample. The `sample_info` data has 10138 rows and 2 columns. 
+
+```{r}
+sample_info = snp_dat2 %>% select("Sample.Name","Sample.Type")%>% unique()
+dim(sample_info)
+```
+This data has 10138 rows and 2 columns with name `Sample.Name`, `Sample.Type`. Each row respresents an individual patient. Here we can see the first 10 rows of our `sample_info`.
+
+```{r display data}
+head(sample_info,10)
+```
+
+`Sample.Name`: A sample unique identifier for each patient. Each value indicates the source of the sample data for the row.
+
+`Sample.Type`: Char categorical variable. It indicates the sample in this row is from which treatment group. In this case, there are only two groups: case group or the control group.
+
+For example, the first row means the patient with the identifier 1118 belongs to the case group.
+
+Then, we explore the structure of another input data `snp_info`. 
+It contains the information of every sample specific rare variant (SNP). The `snp_info` data has 401429 rows and 3 columns. 
+
+```{r}
+snp_info = snp_dat2 %>% select("Sample.Name","snpID","domainID")
+dim(snp_info)
+```
+This data has 401429 rows and 3 columns with name `Sample.Name`, `snpID`,`domainID`. Each row represents a sample specific rare variant (SNP). Here we can see the first 10 rows of our `sample_info`.
+
+```{r}
+head(snp_info,10)
+```
+
+`snpID`: A string to respresent SNP. An snp ID is a unique identifier that is assigned to a specific SNP(Single Nucleotide Polymorphism). These IDs are used to refer to specific SNPs in research.
+
+`domainID`: Discrete numeric variable. The data contains 949 domain IDs. It indicates the homology-based protein domain where this row's snp is located in.
+
+From the data above we can see that there are 5 people with snp "117". In total there are 66046 SNPs. But we have 100000 rows, which means that some variants(SNPs) do not appear in only one sample.
+
+We can query person has specific MAF in a domain. For example, we can see there is one sample named 8043 has snp 129784 in domain 1.
+```{r}
+snp_info %>% filter(domainID == 1 & snpID == 129784)
+```
+
+We can also query domains that a person carries MAF. For example, we can see the sample named 1118 carries MAF in 47 domains such as domain1, domain19 etc.
+```{r}
+nrow(snp_info %>% filter(Sample.Name==1118))
+head(snp_info %>% filter(Sample.Name==1118))
+```
+
+A histogram below plots the number of samples who have the rare variant in each snp ID.
+For example, when the x axis Snp ID is 263301
+, the y axis is 6, which means that the mutation at Snp ID = 263301
+ appeared in 6 samples.
+```{r snpID, echo=FALSE}
+library(ggplot2)
+library(gridExtra)
+
+p1 = ggplot(data.frame(y = snp_info$snpID), aes(x = y)) +
+  geom_histogram(binwidth = 1, color = "black") +
+  labs(title = "The Number of Samples Who Have the Rare Variant in Each Snp ID",x = "Snp ID",y = "Number of Samples") + 
+  theme_bw()
+p1
+```
+
+A histogram below plots the number of SNPs occurring in each domain in all samples
+For example, when the x axis Domain ID is 1, the y axis is 10, which means in all samples, a total of 10 variations occurred in domain 1.
+```{r domainID, echo=FALSE}
+p3 = ggplot(data.frame(y = snp_info$domainID), aes(x = y)) +
+  geom_histogram(binwidth = 0.2, color = "black") +
+  labs(title = "The Number of Domain Each Sample's Rare Variant From", x = "Domain ID", y = "Value") + 
+  theme_bw()
+p3
+```
+
+
+
+
+```{r include=FALSE}
+Test_Leaf1 <- function(snp_info=NULL,sample_info = NULL, thresh_val=10,covars=NULL,teststat="FET"){
+  sample_info <- sample_info %>% select("Sample.Name","Sample.Type") %>% unique()
+  snp_info <- snp_info %>% select("Sample.Name","snpID","domainID")
+  
+  # Prove we can gain former input data by using new input data
+  snp_dat <- left_join(snp_info, sample_info, by = "Sample.Name")
+  struct_map <- construct_leafs(snp_dat=snp_dat,thresh_val=thresh_val)
+  total_leaves <- uniqueN(struct_map$L1)
+  #Global objects
+  D_approx_prev = FD_approx_prev = 0
+  
+  glm_input <- snp_dat%>%
+    dplyr::select(c("Sample.Name","Sample.Type",covars))%>%
+    distinct_all()%>%
+    arrange(Sample.Name)%>%
+    mutate(types=ifelse(Sample.Type=="case",1,0))%>%
+    dplyr::select(c("types",covars))
+  
+  N <- uniqueN(snp_dat$Sample.Name)
+  nsnp <- max(as.integer(snp_dat$snpID))
+  # Get Gmat case and control
+  mat_all <- new("dgTMatrix",
+                 i = as.integer(snp_dat$Sample.Name-1),
+                 j = as.integer(snp_dat$snpID-1), x=rep(1,nrow(snp_dat)),
+                 Dim = c(N, nsnp))
+  N1=sum(glm_input$types)
+  N0=N-N1
+  
+  leaf_mat_all <- create_leaf_attribute(mat_all,struct_map)
+  leaf_mat_all@x <- ifelse(leaf_mat_all@x>0,1,0)
+  
+  if(teststat=="FET"){
+    #Get marginals - qualifying variants for cases and all
+    case_colSums = Matrix::colSums(leaf_mat_all[1:N1,])
+    all_colSums = Matrix::colSums(leaf_mat_all)
+    
+    pvals.1 <- calcFETpval_per_leaf(N1=N1,N0=N0,
+                                    case_colSums = case_colSums,
+                                    all_colSums = all_colSums,
+                                    midp=TRUE)
+    pvals.1 <- pmin(pvals.1,1)
+    
+  } else{
+    if(ncol(glm_input)>1){
+      #With covariates
+      score.test <- ScoreTest_fastSPA_sparse(genomat=leaf_mat_all, #leaf_mat_all is an Nxm matrix of leaf attributes
+                                             pheno=glm_input$types,cov=glm_input[,covars],
+                                             minmac=1,Cutoff=2)
+    } else{
+      #Without covariates
+      score.test <- ScoreTest_fastSPA_sparse(genomat=leaf_mat_all, #leaf_mat_all is an Nxm matrix of leaf attributes
+                                             pheno=glm_input,cov=NULL,
+                                             minmac=1,Cutoff=2)
+    }
+    score.1 <- score.test$Tstat.sign
+    pvals.1 <- score.test$p.value
+  }
+  
+  Z.1 <- qnorm(1-pvals.1)
+  pvals.1[is.na(pvals.1)] <- 1
+  Z.1[is.na(pvals.1)] <- -100
+  Z.1 <- pmin(Z.1,100)
+  Z.1 <- pmax(Z.1,-100)
+  S <- NULL
+  #Do not test the leaf with pvals.1=1###########check!!!!
+  struct_map0 <- data.table("L1"=seq_along(pvals.1),"pvals"=pvals.1)%>%
+    left_join(struct_map,by="L1")%>%filter(pvals!=1)%>%#mutate(L0=L1)%>%
+    #mutate(L0=rleid(L1))%>%
+    mutate("Test"=teststat)
+  
+  return(struct_map0)
+}
+
+
+#' DYNATE
+#' Function to conduct hierarchical mutiple testing based on the leaf p-values
+#' @import tidyverse dplyr
+#' @importFrom tibble rowid_to_column
+#' @importFrom methods as
+#' @importFrom data.table ":=" uniqueN data.table setkey setDT rleid
+#' @importFrom stats uniroot pchisq splinefunH na.omit integrate pchisq pnorm qnorm dhyper glm model.matrix
+#' @importFrom reshape2 colsplit
+#' @import Matrix
+#' @param struct_map a data frame with both leaf information and P-value information.
+#' @param L maximum number of layers
+#' @param alpha desired FDR
+#'
+#' @return a data frame with testing results.
+#' @export
+#'
+#' @references
+#' Li, Xuechan, Anthony Sung, and Jichun Xie. "Distance Assisted Recursive Testing." arXiv preprint arXiv:2103.11085 (2021).
+#' Pura, John, et al. "TEAM: A Multiple Testing Algorithm on the Aggregation Tree for Flow Cytometry Analysis." arXiv preprint arXiv:1906.07757 (2019).
+#'
+#' @examples
+#' data("p_leaf")
+#'
+#' # Set tuning parameters
+#' L <- 3 # layer number
+#' alpha <- 0.05 # desired FDR
+#'
+#' # conduct dynamic and hierarchical testing based on the leaf level p values.
+#' out <- DYNATE(struct_map=p_leaf,L=L,alpha=alpha)
+#' summary(out)
+DYNATE6 <- function(struct_map,
+                   L=5,
+                   alpha=0.05){
+  
+  total_leaves <- uniqueN(struct_map$L1)
+  
+  struct_map <- data.table(struct_map)%>%mutate(L0=L1,L1=rleid(L1))
+  pvals.1 <- struct_map[,c("pvals","L1")]%>%distinct_all()
+  pvals.1 <- c(struct_map$pvals)
+  
+  # get the estimated mixed node structure
+  total_leaves <- uniqueN(struct_map$L1)
+  hatn1 <- ceiling(sqrt(total_leaves))
+  pn1 <- pvals.1[rank(pvals.1,ties.method="first")==hatn1]
+  
+  setkey(struct_map,snpID)
+  struct_map <- struct_map %>% mutate(hatm1=(pvals<=pn1),pvals1=pvals) %>%
+    group_by(L1)%>%mutate(wt=1/n())%>%ungroup()
+  
+  struct_map_ <- struct_map
+  
+  Sps <- NULL
+  p1s <- p0s <- NULL
+  smap_res <- NULL
+  S<-NULL
+  D_approx_prev = FD_approx_prev = 0
+  
+  #pvals_list <- list() #add
+  
+  #Ll <- paste0("L",1) # 添加这一行，定义初始值为 L1
+  
+  for(l in seq(L)){
+    Ll <- paste0("L",l)
+    Lm1 <- paste0("L",l-1)
+   
+    if(l>1){
+      #First remove domains with fewer than 2^(l-1) L1 leaves
+      removed_map <- struct_map%>%
+        group_by(domainID)%>%filter_at(Lm1,any_vars(uniqueN(.)<2))%>%
+        ungroup()
+      struct_map <- struct_map%>%
+        group_by(domainID)%>%filter_at(Lm1,any_vars(uniqueN(.)>=2))%>%
+        ungroup()
+      
+      setDT(struct_map)
+      setkey(struct_map, domainID)
+      struct_map <- struct_map[, (Ll) := {
+        ## modify rle values
+        x <- ceiling(rleid(get(Lm1)) / 2)
+        n <- uniqueN(get(Lm1))
+        if(n %% 2==1){
+          x[x == x[.N]] <- x[.N] - 1
+        }
+        x
+      }, by = .(domainID)][, (Ll) := rleid(domainID,get(Ll))] #reassign groups by domain and Ll
+      
+      struct_map <- struct_map%>%group_by_at(Ll)%>%#mutate(wt=)%>%
+        mutate(pvals=stouffer.p2(pvals1,L1,wt))%>%ungroup()
+      Sps <- samp.pvals.leaf_L1(struct_map,Ll,p1s=p1s,p0s=p0s)
+      
+      struct_map <- struct_map %>% mutate(!!paste0("pvals-", l) := pvals) #add
+    }
+    
+    
+   # Ll <- paste0("L",l) # 添加这一行，将 Ll 更新为当前循环的 L 值
+    
+    m.l = uniqueN(data.frame(struct_map)[,Ll])
+    
+    
+    #pvals_cols <- grep("^pvals-", colnames(struct_map)) # add
+    #struct_map_pvals <- struct_map[, pvals_cols] # add
+  #  pvals.l = data.frame(struct_map_pvals[,l-1]) %>% unique() # add
+    #pvals.l = data.frame(struct_map_pvals[,l-1]) # add
+    #pvals.l = pvals.l[!duplicated(pvals.l), ] # add
+    
+    #pvals.l = unlist(pvals.l) # add
+    
+   pvals.l=struct_map%>%dplyr::select(c("pvals",all_of(Ll)))%>%distinct_all()
+
+  
+    
+    #Obtain layer specific-threshold
+    p.hat = est.p.hat_samp(l=l,
+                           D_prev = D_approx_prev,
+                           FD_prev = FD_approx_prev,
+                           #pvals_l =pvals.l,# add
+                           pvals_l=c(pvals.l$pvals),
+                           alpha=alpha,
+                           alpha1=NULL,
+                           Sps=Sps)
+    
+    
+    p.hat.l=p.hat$p.hat
+    D_approx_prev = p.hat$D_approx_prev
+    FD_approx_prev = p.hat$FD_approx_prev
+    if(l==1){
+      pvals.1 <- c(pvals.l$pvals)
+      S.l1 <- which(pvals.1 <= p.hat$p.hat1)
+      if(length(S.l1)==0){
+        p1s=min(pvals.1)
+        p0s=pvals.1[-which.min(pvals.1)]
+      }else{
+        p1s=pvals.1[S.l1]
+        p0s=pvals.1[-S.l1]
+        
+        #new (R(1-alpha)), more conservative, 02242022
+        p1s1=sort(p1s)[seq(floor(length(p1s)*(1-alpha)))]
+        p1s2=sort(p1s)[-seq(floor(length(p1s)*(1-alpha)))]
+        p1s=p1s1
+        p0s=c(p0s,p1s2)
+        #new end
+      }
+    }
+    rej_map <- struct_map%>%filter(pvals<=p.hat.l)%>%mutate(Layer=l)
+    smap_res <- smap_res%>%bind_rows(rej_map)
+    struct_map <- struct_map%>%filter(pvals>p.hat.l)
+    if(nrow(struct_map)==0){next}
+  }
+  smap_res <- smap_res%>%mutate(L1=L0)%>%
+    dplyr::select(-c("pvals","hatm1","wt","L0"))
+  
+  return(smap_res)
+}
+
+
+############# AUXILIARY FUNCTIONS #################
+construct_leafs <- function(snp_dat,
+                            thresh_val=10){
+  ##Leaf construction
+  t1 <- Sys.time()
+  #function(thresh, ID, domain_end,snp_end)
+  struct_map <- data.table(snp_dat) %>%
+    arrange(domainID,snpID)%>%
+    mutate_at("Sample.Name",as.character) %>%
+    #Coerce ID from factor to character
+    group_by(domainID) %>%
+    mutate(lastObsFlagDomain = as.integer(row_number() == n())) %>%
+    group_by(snpID,.add=TRUE) %>%
+    mutate(lastObsFlagSnp = as.integer(row_number()==n())) %>%
+    ungroup() %>%
+    mutate(num_comb = compute_counts(thresh_val, Sample.Name,
+                                     lastObsFlagDomain,lastObsFlagSnp)) %>%
+    mutate(num_unique = colsplit(num_comb,",",c(1:2))[,1]) %>%
+    mutate(num_all = colsplit(num_comb,",",c(1:2))[,2]) %>%
+    mutate(group = cumsum(c(-1L, diff(num_all)) <= 0L)) %>%
+    group_by(domainID) %>%
+    mutate(group2 = ifelse(group==max(group) & last(num_unique) < thresh_val,
+                           max(max(group)-1L,min(group)),group)) %>%
+    ungroup() %>%
+    mutate(L1 = rleid(group2)) %>%
+    dplyr::select(-c(contains("group"),lastObsFlagDomain,num_unique,num_comb,num_all)) %>%
+    mutate_at("Sample.Name",as.factor) %>% #coerce ID back to factor
+    data.table() #15-37s, based on N0 size
+  
+  struct_map <- struct_map %>% dplyr::select(c(snpID,L1,domainID)) %>% distinct(snpID,L1,domainID)
+  setkey(struct_map,snpID)
+  t2 <- Sys.time()
+  
+  return(struct_map)
+}
+
+
+est.p.hat_samp <- function(l,D_prev,FD_prev,pvals_l,alpha,alpha1=NULL,Sps=NULL){
+  
+  ##print(paste("l:",l))
+  if(is.null(alpha1)) {alpha1=alpha}
+  m.l = length(pvals_l)
+  
+  #Threshold very small p-values based on constant
+  p.m = ifelse(m.l==0,1,min(1/(m.l*sqrt(log(m.l))),0.05))
+  
+  filter <- which(pvals_l<=p.m|pvals_l>alpha1)
+  
+  if(length(filter)>0){
+    p.vec = unique(sort(pvals_l[-filter],decreasing = FALSE))
+  }else {
+    p.vec = unique(sort(pvals_l,decreasing = FALSE))
+  }
+  if(length(p.vec)==0){p.vec=p.m}
+  
+  p.indx = 0
+  emp.fdr = 0
+  
+  addi <- 0
+  if(!is.null(Sps)){
+    propct <- Sps$sps$ct*Sps$sps$altprop
+    delnames <- intersect(c("type","altct","nullct","altprop","ct"),colnames(Sps$sps))
+    sps <- Sps$sps%>%dplyr::select(-delnames)
+    
+    rows=nrow(sps);cols=ncol(sps)
+    if(rows==1){
+      sps0 <- sapply(sps,function(x){propct%*%outer(x,p.vec,"<=")})
+      addi <- mean(sps0)
+    }else{
+      sps0 <- sapply(sps,function(x){colSums(diag(propct)%*%outer(x,p.vec,"<="))})
+      if(length(p.vec)==1){
+        addi <- mean(sps0)
+      }else{
+        addi <- rowMeans(sps0)
+      }
+      
+    }
+  }
+  
+  fdr.num = FD_prev + m.l*p.vec+addi
+  fdr.denom = D_prev + sapply(p.vec,function(x){sum(pvals_l<=x)})
+  emp.fdr = fdr.num/pmax(fdr.denom,1)
+  p.vec <- c(p.m,p.vec)
+  index <- max(which(c(0,emp.fdr)<=alpha))
+  index1 <- max(which(c(0,emp.fdr)<=alpha1))
+  p.hat <- p.vec[index]
+  p.hat1 <- p.vec[index1]
+  D_approx_prev=fdr.denom[index]
+  FD_approx_prev=min(fdr.num[index],D_approx_prev)
+  
+  return(list("p.hat"=p.hat,"p.hat1"=p.hat1,
+              "FD_approx_prev"=FD_approx_prev,
+              "D_approx_prev"=D_approx_prev))
+}
+
+
+
+####### Functions to compute test-statistics
+
+fisher.exact.test <- function(z,midp=TRUE){
+  
+  x <- z[1]
+  sampTot <- z[2]
+  pop1Tot <- z[3]
+  pop2Tot <- z[4]
+  
+  lo <- max(0L, sampTot - pop2Tot)
+  hi <- min(sampTot, pop1Tot)
+  
+  support <- lo : hi
+  out <- dhyper(support, pop1Tot, pop2Tot, sampTot)
+  
+  if(midp){
+    #mid p-val with minimum likelihood method
+    return(sum(out[out < out[x - lo + 1]]) + sum(out[out==out[x-lo+1]])/2)
+  } else{
+    #minimum likelihood method
+    return(sum(out[out <= out[x - lo + 1]]))
+  }
+}
+
+calcFETpval_per_leaf <- function(N1,N0,case_colSums,all_colSums,
+                                 midp=TRUE){
+  
+  #Order of input is: sample hit, sample size, pop1 size, pop2 size
+  cont_tab_summ2x2 <- unname(cbind(case_colSums,all_colSums,N1,N0))
+  
+  # Apply row-wise
+  FET_pvals <- apply(cont_tab_summ2x2, 1,
+                     function(z) fisher.exact.test(z,midp = midp))
+  
+  #Vector of length m.l, where m.l is number of leaves/hypotheses at layer l
+  return(FET_pvals)
+  
+}
+
+compute_counts <- function(thresh, ID, domain_end,snp_end) {
+  see_idss <- seen_ids <- NULL
+  count <- 0L
+  countall <- 0L
+  adjust_count <- function(id, domain_end,snp_end) {
+    if (!(id %in% seen_ids)) {
+      seen_ids <<- c(seen_ids,id)
+      count <<- count + 1L
+    }
+    countall <<- countall+ 1L
+    
+    if ((snp_end & (uniqueN(seen_ids) >= thresh))|domain_end) {
+      count <- count # copy enclosed value locally
+      countall <- countall
+      seen_ids <<- NULL
+      count <<- 0L
+      countall <<- 0L
+    }
+    paste(count,countall,sep=",")
+  }
+  unlist(Map(adjust_count, ID, domain_end, snp_end))
+}
+
+
+create_leaf_attribute <- function(snp_mat,snp_leaf_map){
+  
+  snp_mat@Dimnames <- list(NULL,NULL)
+  
+  #Convert mat to dgTMatrix if not already
+  if(!inherits(snp_mat,"dgTMatrix")){
+    snp_mat <- as(snp_mat, "dgTMatrix")
+  }
+  
+  snp_mat2 <- snp_mat #copy object
+  
+  #Replace column indices with new set of indices
+  #Make sure initial indices start with zero
+  snp_mat2@j <- as.integer(snp_leaf_map[.(snp_mat@j+1)]$L1-1)
+  #Correct dimensions of new matrix
+  smij <- distinct_all(data.frame(snp_mat2@i,snp_mat2@j))
+  snp_mat2@i <- smij[,1]
+  snp_mat2@j <- smij[,2]
+  snp_mat2@Dim <- as.integer(c(nrow(snp_mat2),
+                               length(unique(snp_leaf_map$L1))))
+  
+  #Convert to dgCMatrix
+  y <- as(snp_mat2,"dgCMatrix")
+  return(y)
+}
+
+stouffer.p <- function(x){
+  pnorm(sum(x)/sqrt(length(x)),lower.tail=FALSE)
+}
+
+stouffer.p2 <- function(y,g,wt){
+  x <- qnorm(1-y)
+  out=pnorm(sum(x*wt)/sqrt(uniqueN(g)),lower.tail=FALSE)
+  return(rep(out,length(x)))
+}
+
+
+
+
+samp.pvals.leaf_L1 <- function(struct_map,Ll,Nsamp=100,p1s=NULL,p0s=NULL){
+  # change to a more efficient algorithm
+  # sampling (check the probability of the entile mixed population)
+  delname <- intersect(c("snpID","alt_snps"),colnames(struct_map))
+  struct_map2=struct_map%>%group_by_at(Ll)%>%
+    mutate(mixed=((prod(hatm1)+prod(!hatm1))==0),
+           altprop=sum(!hatm1)/length(hatm1),#altprop here means the estimated proportion of false rejection
+           altct=sum(hatm1),
+           nullct=sum(!hatm1))%>%ungroup()%>%
+    dplyr::select(-delname)%>%distinct_all()
+  if(any(sum(struct_map2$mixed)==0,length(p1s)==0)){return(NULL)}else{
+    struct_map2 <- struct_map2%>%filter(mixed)%>%arrange(hatm1)
+    struct_map3 <- struct_map2%>%group_by(altct,nullct,altprop)%>%
+      summarize(ct=n())%>%ungroup()%>%rowid_to_column(var="type")
+    sp1s <- sample(p1s,Nsamp*sum(struct_map3$altct),replace=TRUE)
+    sp0s <- sample(p0s,Nsamp*sum(struct_map3$nullct),replace=TRUE)
+    Sp1s <- data.frame(matrix(qnorm(sp1s,lower.tail=FALSE),ncol=Nsamp))%>%
+      mutate(type=rep(struct_map3$type,time=struct_map3$altct))
+    Sp0s <- data.frame(matrix(qnorm(sp0s,lower.tail=FALSE),ncol=Nsamp))%>%
+      mutate(type=rep(struct_map3$type,time=struct_map3$nullct))
+    sps <- rbind(Sp1s,Sp0s)%>%group_by(type)%>%
+      summarise_at(paste0("X",seq(Nsamp)), stouffer.p)%>%ungroup()%>%
+      left_join(struct_map3,by="type")
+    return(list("sps"=sps,"M"=nrow(struct_map2),
+                "altprop"=struct_map2$altprop))
+  }
+}
+```
+
+## The DYNATE Model
+
+The `DYNATE` model and all the steps taken in the software are described in detail in our publication (Li, X., Pura, J., Allen, A., Owzar, K., Harms, M., & Xie, J. (2022)). It splits the whole-exome or genome into small regions called leaves, tests their disease associations, hierarchically aggregates these regions into larger regions, and then tests those larger regions. 
+Firstly, we use `Test_leaf` function to test the leaf-level disease associations by generating leaf p-values for case-control study. Then use `DYNATE` function to conduct hierarchical multiple testing based on the leaf p-values. 
+
+# Test_leaf Function
+
+First, we introduce basic definition and set the tunning parameters as follows. 
+
+Leaf: We define a leaf as a gentic region where $M$ subjects carry qualifying rare variants.
+
+Leaf size: In a leaf, if there are $M$ subjects carry qualifying rare variants. Here, $M$ denotes the leaf size. It is a much smaller number compared to $N_0$ (Number of subjects assigned in case group) and $N_1$(Number of subjects assigned in control group). When $M = 1$, only one subject carries qualifying RVs in each leaf. In practice,we recommend $M \geq 5$. A node $S$ is a union of one or more leaves. A node represents a genome region with qualifying rare variants. On higher layers ($layer \geq 2$), it aggregates the accepting nodes from the previous layer to form new nodes. For any node $S$, the set of its qualifying RVs is denoted by $V(S)$. 
+
+```{r parameters}
+L <- 3 # layer number
+M <- 5 # leaf size
+alpha <- 0.05 # desired FDR
+```
+
+Second, we use `Test_Leaf` function to construct leaves and generate leaf P-values for the case-control study.
+
+About the parameter in function `Test_leaf`.
+
+`snp_dat`: An data frame containing patients mutation information. The structure of it is showed above.
+
+`thresh_val`:  A positive integer for leaf size.
+
+`covars`: An optional vector about the name of covariates to be considered in the fitting process. Should be NULL (default) or a character vector.
+
+`teststat`: The statistic used to derive p-value. Must be one of "FET" (Lancaster’s mid-P correction for the Fisher’s exact test) or "score" (efficient score statistics with saddle point approximation).
+
+Construct leaves and generate leaf p-value based on score test statistics considering covariates effects.
+```{r p_leaf.1}
+p_leaf <- Test_Leaf1(snp_info = snp_info,sample_info = sample_info, thresh_val = M,teststat = "FET")
+dim(p_leaf)
+```
+The dimension of the data is $263789\times 5$.
+
+This output data frame has 263789 rows and 5 columns with name `L1`, `pvals`, `snpID`, `domainID`, `Test`. 
+Each row links to a rare variant (SNPs) that belongs to a leaf with testing p-value < 1.
+
+Here is the first 10 rows of the data.
+```{r p_leaf.2}
+head(p_leaf,10)
+```
+
+`L1`: Discrete numeric variable. Leaf ID. It indicates the leaf to which the SNP corresponding to this row is assigned. The `p_leaf` data contains `r length(unique(p_leaf$L1))` Leaf. 63763 < 263789 (the number of snp ID). This phenomenon illustrates that some leaves contain more than one rare variants (SNPs). The plot below gives us a more intuitive impression.
+
+A histogram below plots the number of different rare variants(SNPs) each leaf has.
+For example, when the x axis Leaf ID is 1, the y axis is 4, which means we observed 4 rare variants in leaf 1 genic region.
+
+```{r domainID.2, echo=FALSE}
+p4 = ggplot(data.frame(y = p_leaf$L1), aes(x = y)) +
+  geom_histogram(binwidth = 0.2, color = "black") +
+  labs(title = "The Number of Different Rare Variants(SNPs) Each Leaf Has", x = "Leaf ID", y = "Number of Snp ID") + 
+  theme_bw()
+p4
+```
+
+`pvals`: Continuous numeric variable. The leaf level p values. 
+
+If it is less than threshold we calculated, then we call this leaf is null. The rare variants in this leaf are not associated with the disease; otherwise, we call it alternative.
+
+The histogram below shows the distribution of p values. 
+
+```{r pvals}
+p5 = ggplot(data.frame(y = p_leaf$pvals), aes(x = y)) +
+  geom_histogram(binwidth = 0.005) + scale_fill_manual(name = "p-values", 
+                    values = "black") +
+  labs(title = "Histogram of P-Values for All Leaves", x = "P-Values", y = "Frequency") + 
+  theme_bw()
+p5
+```
+
+`snpID`: Discrete numeric variable. In total there are `r length(unique(p_leaf$snpID))` SNPs. The meaning is the same as `raw`$snpID`above.
+
+`domainID`: Discrete numeric variable. The generated data contains 2,000 domain IDs from 1 to 2000. The meaning is the same as `dat$domainID`above.
+
+`Test`: It indicates the name of the statistical test to generate the leaf level p values (FET(Fisher’s exact test) or score(efficient score statistics with saddle point approximation)). In this study, we only use `FET` statistics.
+
+# DYNATE Function
+Finally, we use the function `DYNATE` to conduct dynamic and hierarchical testing based on the leaf level p values.
+
+About the parameter in function `DYNATE`.
+
+`struct_map`: A data frame with both leaf information and P-value information. We can see `p_leaf` above as an example.
+
+`L`:	Maximum number of layers
+
+`alpha`: Desired FDR (Significance level).
+
+```{r dynate.1}
+out <- DYNATE6(struct_map=p_leaf,L=L,alpha=alpha)
+dim(out)
+```
+The dimension of the output data is $35\times 10$.
+
+This output data frame has 9 rows and 10 columns with name `L1`, `snpID`, `domainID`, `Test`, `pvals1`,`Layer`,`pvals-2`,`L2`,`pvals-3`,`L3`.
+
+Each row links to a rare variant (SNPs) that belongs to a leaf with testing p-value < 1.
+
+Here is the first 10 rows of the data.
+
+```{r dynate.2}
+head(out,10)
+```
+
+`pvals1`: Continuous numeric variable. Same as `pvals`. The leaf level p values.
+
+`Layer`: Discrete numeric variable. It indicates in which layer the SNP is detected.
+
+`L2`: Discrete numeric variable. The second layer node ID. It indicates the node to which the SNP corresponding to this row is assigned. 
+
+`pvals-2`: Continuous numeric variable. The second layer node level p values.
+
+`L3`: Discrete numeric variable. The third layer node ID. It indicates the node to which the SNP corresponding to this row is assigned. 
+
+`pvals-3`:  Continuous numeric variable. The third layer node level p values.
+
+For example, we can see the first row. snp 248449 is located in domain 16372. It is assigned at leaf 51374. On layer 1 (leaf level), the p value is 1.030046e-05. On layer 2 (node level), it is assigned at node 20336 and the p value is 1.529736e-06 and the null hypothesis is rejected. Therefore it will not be included in the construction of layer3. `L3` and `pvals-3` of this row is NA.
