@@ -1,8 +1,8 @@
-# DYNATE
+# DYNATE1.1
 DYNATE package
 
 
-## Installation guidance
+## DYANTE1.0 Installation guidance
 In R, run the following block of codes:
 
 ```{r, include = FALSE}
